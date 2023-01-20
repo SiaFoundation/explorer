@@ -1,14 +1,12 @@
 package api
 
 import (
-	"encoding/json"
 	"net/http"
-	"strconv"
 
-	"github.com/julienschmidt/httprouter"
 	"go.sia.tech/core/consensus"
 	"go.sia.tech/core/types"
 	"go.sia.tech/explorer"
+	"go.sia.tech/jape"
 )
 
 type (
@@ -56,30 +54,28 @@ type server struct {
 	tp TransactionPool
 }
 
-func (s *server) txpoolBroadcastHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) txpoolBroadcastHandler(jc jape.Context) {
 	var tbr TxpoolBroadcastRequest
-	if err := json.NewDecoder(req.Body).Decode(&tbr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Decode(&tbr) != nil {
 		return
 	}
+
 	for _, txn := range tbr.DependsOn {
-		if err := s.tp.AddTransaction(txn); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if jc.Check("couldn't broadcast transaction dependency", s.tp.AddTransaction(txn)) != nil {
 			return
 		}
 	}
-	if err := s.tp.AddTransaction(tbr.Transaction); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("couldn't broadcast transaction dependency", s.tp.AddTransaction(tbr.Transaction)) != nil {
 		return
 	}
 	s.s.BroadcastTransaction(tbr.Transaction, tbr.DependsOn)
 }
 
-func (s *server) txpoolTransactionsHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	WriteJSON(w, s.tp.Transactions())
+func (s *server) txpoolTransactionsHandler(jc jape.Context) {
+	jc.Encode(s.tp.Transactions())
 }
 
-func (s *server) syncerPeersHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) syncerPeersHandler(jc jape.Context) {
 	ps := s.s.Peers()
 	sps := make([]SyncerPeerResponse, len(ps))
 	for i, peer := range ps {
@@ -87,111 +83,96 @@ func (s *server) syncerPeersHandler(w http.ResponseWriter, req *http.Request, _ 
 			NetAddress: peer,
 		}
 	}
-	WriteJSON(w, sps)
+	jc.Encode(sps)
 }
 
-func (s *server) syncerConnectHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
-	var scr SyncerConnectRequest
-	if err := json.NewDecoder(req.Body).Decode(&scr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+func (s *server) syncerConnectHandler(jc jape.Context) {
+	var addr string
+	if jc.Decode(&addr) != nil {
 		return
 	}
-
-	if err := s.s.Connect(scr.NetAddress); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to connect to peer", s.s.Connect(addr)) != nil {
 		return
 	}
 }
 
-func (s *server) elementSiacoinHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *server) elementSiacoinHandler(jc jape.Context) {
 	var id types.ElementID
-	if err := id.UnmarshalText([]byte(p.ByName("id"))); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
 
 	elem, err := s.e.SiacoinElement(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to load siacoin element", err) != nil {
 		return
 	}
-	WriteJSON(w, elem)
+	jc.Encode(elem)
 }
 
-func (s *server) elementSiafundHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *server) elementSiafundHandler(jc jape.Context) {
 	var id types.ElementID
-	if err := id.UnmarshalText([]byte(p.ByName("id"))); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
 
 	elem, err := s.e.SiafundElement(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to load siafund element", err) != nil {
 		return
 	}
-	WriteJSON(w, elem)
+	jc.Encode(elem)
 }
 
-func (s *server) elementContractHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *server) elementContractHandler(jc jape.Context) {
 	var id types.ElementID
-	if err := id.UnmarshalText([]byte(p.ByName("id"))); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
 
 	elem, err := s.e.FileContractElement(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to load siafund element", err) != nil {
 		return
 	}
-	WriteJSON(w, elem)
+	jc.Encode(elem)
 }
 
-func (s *server) chainStatsHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
-	if p.ByName("index") == "tip" {
+func (s *server) chainStatsHandler(jc jape.Context) {
+	if jc.PathParam("index") == "tip" {
 		facts, err := s.e.ChainStatsLatest()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if jc.Check("failed to load latest chain stats", err) != nil {
 			return
 		}
-		WriteJSON(w, facts)
+		jc.Encode(facts)
 		return
 	}
 
-	index, err := types.ParseChainIndex(p.ByName("index"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	index, err := types.ParseChainIndex(jc.PathParam("index"))
+	if jc.Check("failed to parse chain index", err) != nil {
 		return
 	}
 
 	facts, err := s.e.ChainStats(index)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to load chain stats", err) != nil {
 		return
 	}
-	WriteJSON(w, facts)
+	jc.Encode(facts)
 }
 
-func (s *server) chainStateHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
-	index, err := types.ParseChainIndex(p.ByName("index"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+func (s *server) chainStateHandler(jc jape.Context) {
+	index, err := types.ParseChainIndex(jc.PathParam("index"))
+	if jc.Check("failed to parse chain index", err) != nil {
 		return
 	}
 
 	vc, err := s.e.State(index)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to load chain state", err) != nil {
 		return
 	}
-	WriteJSON(w, vc)
+	jc.Encode(vc)
 }
 
-func (s *server) elementSearchHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *server) elementSearchHandler(jc jape.Context) {
 	var id types.ElementID
-	if err := id.UnmarshalText([]byte(p.ByName("id"))); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
 
@@ -206,202 +187,190 @@ func (s *server) elementSearchHandler(w http.ResponseWriter, req *http.Request, 
 		response.Type = "contract"
 		response.FileContractElement = elem
 	}
-	WriteJSON(w, response)
+	jc.Encode(response)
 }
 
-func (s *server) addressBalanceHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *server) addressBalanceHandler(jc jape.Context) {
 	var address types.Address
-	if err := json.Unmarshal([]byte(p.ByName("address")), &address); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.DecodeParam("address", &address) != nil {
 		return
 	}
+
 	scBalance, err := s.e.SiacoinBalance(address)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to get siacoin balance", err) != nil {
 		return
 	}
+
 	sfBalance, err := s.e.SiafundBalance(address)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to get siafund balance", err) != nil {
 		return
 	}
-	WriteJSON(w, ExplorerWalletBalanceResponse{scBalance, sfBalance})
+
+	jc.Encode(ExplorerWalletBalanceResponse{scBalance, sfBalance})
 }
 
-func (s *server) addressSiacoinsHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *server) addressSiacoinsHandler(jc jape.Context) {
 	var address types.Address
-	if err := json.Unmarshal([]byte(p.ByName("address")), &address); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.DecodeParam("address", &address) != nil {
 		return
 	}
+
 	outputs, err := s.e.UnspentSiacoinElements(address)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to get unspent siacoin elements", err) != nil {
 		return
 	}
-
-	WriteJSON(w, outputs)
+	jc.Encode(outputs)
 }
 
-func (s *server) addressSiafundsHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *server) addressSiafundsHandler(jc jape.Context) {
 	var address types.Address
-	if err := json.Unmarshal([]byte(p.ByName("address")), &address); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.DecodeParam("address", &address) != nil {
 		return
 	}
+
 	outputs, err := s.e.UnspentSiafundElements(address)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to get unspent siafund elements", err) != nil {
 		return
 	}
-	WriteJSON(w, outputs)
+	jc.Encode(outputs)
 }
 
-func (s *server) addressTransactionsHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *server) addressTransactionsHandler(jc jape.Context) {
 	var address types.Address
-	if err := json.Unmarshal([]byte(p.ByName("address")), &address); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.DecodeParam("address", &address) != nil {
 		return
 	}
-	amount, err := strconv.Atoi(req.FormValue("amount"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+
+	var amount int
+	if jc.DecodeForm("amount", &amount) != nil {
 		return
 	}
-	offset, err := strconv.Atoi(req.FormValue("offset"))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+
+	var offset int
+	if jc.DecodeForm("offset", &amount) != nil {
 		return
 	}
 
 	ids, err := s.e.Transactions(address, amount, offset)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to get address' transactions", err) != nil {
 		return
 	}
-	WriteJSON(w, ids)
+
+	jc.Encode(ids)
 }
 
-func (s *server) transactionHandler(w http.ResponseWriter, req *http.Request, p httprouter.Params) {
+func (s *server) transactionHandler(jc jape.Context) {
 	var id types.TransactionID
-	if err := json.Unmarshal([]byte(p.ByName("id")), &id); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.DecodeParam("id", &id) != nil {
 		return
 	}
+
 	txn, err := s.e.Transaction(id)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Check("failed to load transaction", err) != nil {
 		return
 	}
-	WriteJSON(w, txn)
+	jc.Encode(txn)
 }
 
-func (s *server) batchAddressesBalanceHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) batchAddressesBalanceHandler(jc jape.Context) {
 	var addresses []types.Address
-	if err := json.NewDecoder(req.Body).Decode(&addresses); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Decode(&addresses) != nil {
 		return
 	}
 
 	var balances []ExplorerWalletBalanceResponse
 	for _, address := range addresses {
 		scBalance, err := s.e.SiacoinBalance(address)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if jc.Check("failed to get siacoin balance", err) != nil {
 			return
 		}
+
 		sfBalance, err := s.e.SiafundBalance(address)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if jc.Check("failed to get siafund balance", err) != nil {
 			return
 		}
+
 		balances = append(balances, ExplorerWalletBalanceResponse{scBalance, sfBalance})
 	}
-	WriteJSON(w, balances)
+	jc.Encode(balances)
 }
 
-func (s *server) batchAddressesSiacoinsHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) batchAddressesSiacoinsHandler(jc jape.Context) {
 	var addresses []types.Address
-	if err := json.NewDecoder(req.Body).Decode(&addresses); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Decode(&addresses) != nil {
 		return
 	}
 
 	var elems [][]types.SiacoinElement
 	for _, address := range addresses {
 		ids, err := s.e.UnspentSiacoinElements(address)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if jc.Check("failed to load unspent siacoin elements", err) != nil {
 			return
 		}
+
 		var elemsList []types.SiacoinElement
 		for _, id := range ids {
 			elem, err := s.e.SiacoinElement(id)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+			if jc.Check("failed to load siacoin elements", err) != nil {
 				return
 			}
 			elemsList = append(elemsList, elem)
 		}
 		elems = append(elems, elemsList)
 	}
-	WriteJSON(w, elems)
+	jc.Encode(elems)
 }
 
-func (s *server) batchAddressesSiafundsHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) batchAddressesSiafundsHandler(jc jape.Context) {
 	var addresses []types.Address
-	if err := json.NewDecoder(req.Body).Decode(&addresses); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Decode(&addresses) != nil {
 		return
 	}
 
 	var elems [][]types.SiafundElement
 	for _, address := range addresses {
 		ids, err := s.e.UnspentSiafundElements(address)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if jc.Check("failed to load unspent siafund elements", err) != nil {
 			return
 		}
+
 		var elemsList []types.SiafundElement
 		for _, id := range ids {
 			elem, err := s.e.SiafundElement(id)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+			if jc.Check("failed to load siafund elements", err) != nil {
 				return
 			}
 			elemsList = append(elemsList, elem)
 		}
 		elems = append(elems, elemsList)
 	}
-	WriteJSON(w, elems)
+	jc.Encode(elems)
 }
 
-func (s *server) batchAddressesTransactionsHandler(w http.ResponseWriter, req *http.Request, _ httprouter.Params) {
+func (s *server) batchAddressesTransactionsHandler(jc jape.Context) {
 	var etrs []ExplorerTransactionsRequest
-	if err := json.NewDecoder(req.Body).Decode(&etrs); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	if jc.Decode(&etrs) != nil {
 		return
 	}
 
 	var txns [][]types.Transaction
 	for _, etr := range etrs {
 		ids, err := s.e.Transactions(etr.Address, etr.Amount, etr.Offset)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
+		if jc.Check("failed to load transactions", err) != nil {
 			return
 		}
+
 		var txnsList []types.Transaction
 		for _, id := range ids {
 			txn, err := s.e.Transaction(id)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusBadRequest)
+			if jc.Check("failed to load transaction", err) != nil {
 				return
 			}
 			txnsList = append(txnsList, txn)
 		}
 		txns = append(txns, txnsList)
 	}
-	WriteJSON(w, txns)
+	jc.Encode(txns)
 }
 
 // NewServer returns an HTTP handler that serves the explorerd API.
@@ -412,35 +381,33 @@ func NewServer(cm ChainManager, s Syncer, tp TransactionPool, e Explorer) http.H
 		tp: tp,
 		e:  e,
 	}
-	mux := httprouter.New()
+	return jape.Mux(map[string]jape.Handler{
+		"GET /txpool/transactions": srv.txpoolTransactionsHandler,
+		"POST /txpool/broadcast":   srv.txpoolBroadcastHandler,
 
-	mux.GET("/txpool/transactions", srv.txpoolTransactionsHandler)
-	mux.POST("/txpool/broadcast", srv.txpoolBroadcastHandler)
+		"GET /syncer/peers":    srv.syncerPeersHandler,
+		"POST /syncer/connect": srv.syncerConnectHandler,
 
-	mux.GET("/syncer/peers", srv.syncerPeersHandler)
-	mux.POST("/syncer/connect", srv.syncerConnectHandler)
+		"GET /explorer/element/search/:id":   srv.elementSearchHandler,
+		"GET /explorer/element/siacoin/:id":  srv.elementSiacoinHandler,
+		"GET /explorer/element/siafund/:id":  srv.elementSiafundHandler,
+		"GET /explorer/element/contract/:id": srv.elementContractHandler,
 
-	mux.GET("/element/search/:id", srv.elementSearchHandler)
-	mux.GET("/element/siacoin/:id", srv.elementSiacoinHandler)
-	mux.GET("/element/siafund/:id", srv.elementSiafundHandler)
-	mux.GET("/element/contract/:id", srv.elementContractHandler)
+		"GET /explorer/chain/:index":       srv.chainStatsHandler,
+		"GET /explorer/chain/:index/state": srv.chainStateHandler,
 
-	mux.GET("/chain/:index", srv.chainStatsHandler)
-	mux.GET("/chain/:index/state", srv.chainStateHandler)
+		"GET /explorer/transaction/:id": srv.transactionHandler,
 
-	mux.GET("/transaction/:id", srv.transactionHandler)
+		"GET /explorer/address/:address/balance":      srv.addressBalanceHandler,
+		"GET /explorer/address/:address/siacoins":     srv.addressSiacoinsHandler,
+		"GET /explorer/address/:address/siafunds":     srv.addressSiacoinsHandler,
+		"GET /explorer/address/:address/transactions": srv.addressTransactionsHandler,
 
-	mux.GET("/address/:address/balance", srv.addressBalanceHandler)
-	mux.GET("/address/:address/siacoins", srv.addressSiacoinsHandler)
-	mux.GET("/address/:address/siafunds", srv.addressSiacoinsHandler)
-	mux.GET("/address/:address/transactions", srv.addressTransactionsHandler)
-
-	mux.POST("/batch/addresses/balance", srv.batchAddressesBalanceHandler)
-	mux.POST("/batch/addresses/siacoins", srv.batchAddressesSiacoinsHandler)
-	mux.POST("/batch/addresses/siafunds", srv.batchAddressesSiafundsHandler)
-	mux.POST("/batch/addresses/transactions", srv.batchAddressesTransactionsHandler)
-
-	return mux
+		"POST /explorer/batch/addresses/balance":      srv.batchAddressesBalanceHandler,
+		"POST /explorer/batch/addresses/siacoins":     srv.batchAddressesSiacoinsHandler,
+		"POST /explorer/batch/addresses/siafunds":     srv.batchAddressesSiafundsHandler,
+		"POST /explorer/batch/addresses/transactions": srv.batchAddressesTransactionsHandler,
+	})
 }
 
 // AuthMiddleware enforces HTTP Basic Authentication on the provided handler.
