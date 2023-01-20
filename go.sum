@@ -10,6 +10,8 @@ github.com/mattn/go-sqlite3 v1.14.12 h1:TJ1bhYJPV44phC+IMu1u2K/i5RriLTPe+yc68XDJ
 github.com/mattn/go-sqlite3 v1.14.12/go.mod h1:NyWgC/yNuGj7Q9rpYnZvas74GogHl5/Z4A/KQRfk6bU=
 go.sia.tech/core v0.0.0-20220503195635-4e8b29eaae6b h1:lhhXaJh97UFICmjPqmn2cDTB2qFtJ8pLkuXl8M+Xz/o=
 go.sia.tech/core v0.0.0-20220503195635-4e8b29eaae6b/go.mod h1:DzB1dUn6PzFGcWMwnuGD6fjxGGRE8vor3byCIX7pZUU=
+go.sia.tech/jape v0.5.0 h1:6BLMZEePInWwQcJO1mcmrPBpF0QuvkrXmHSWGKeR0tY=
+go.sia.tech/jape v0.5.0/go.mod h1:bu+ka8FgKq7MNH2JRTTOjfvVNku97V4ffyKr0dKoU90=
 go.sia.tech/siad/v2 v2.0.0-20220503205437-66f2e1e3b420 h1:wiiSWCtr5gfvA99eg2btR+lj9Y5paQLJ7NJv8/ezh8I=
 go.sia.tech/siad/v2 v2.0.0-20220503205437-66f2e1e3b420/go.mod h1:HM/PrWbsjvzSiwGvAHDQsdkcDzUUNmUxTDVhm1vUgeE=
 golang.org/x/crypto v0.0.0-20210616213533-5ff15b29337e/go.mod h1:GvvjBRRGRdwPK5ydBHafDWAxML/pGHZbMvKqRZ5+Abc=

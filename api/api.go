@@ -17,11 +17,6 @@ type SyncerPeerResponse struct {
 	NetAddress string `json:"netAddress"`
 }
 
-// A SyncerConnectRequest requests that the syncer connect to a peer.
-type SyncerConnectRequest struct {
-	NetAddress string `json:"netAddress"`
-}
-
 // A ExplorerSearchResponse contains information about an element.
 type ExplorerSearchResponse struct {
 	Type                string                    `json:"type"`
