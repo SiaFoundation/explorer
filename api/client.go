@@ -9,7 +9,7 @@ import (
 	"go.sia.tech/jape"
 )
 
-// A Client provides methods for interacting with a walletd API server.
+// A Client provides methods for interacting with a explorer API server.
 type Client struct {
 	c jape.Client
 }
